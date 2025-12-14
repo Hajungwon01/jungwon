@@ -1,0 +1,27 @@
+{
+  "id": "integer",
+  "qid": "string",
+  "group_id": "string",
+  "qtype": "string",
+  "question": "string",
+  "golden_answers": "string",
+  "documents": {
+    "document_a": {
+      "title": "string",
+      "contents": "string"
+    },
+    "document_b": {
+      "title": "string",
+      "contents": "string"
+    }
+  },
+  "context": {
+    "use": ["string"]
+  },
+  "metadata": {
+    "hop": "integer",
+    "question_type": "comparison | bridge",
+    "role": "multi | sub",
+    "sub_question_index": "integer"
+  }
+}

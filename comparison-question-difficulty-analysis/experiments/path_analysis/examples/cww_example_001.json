@@ -1,0 +1,38 @@
+{
+  "group_id": "example_cww_001",
+  "question_type": "comparison",
+  "hop": 2,
+  "path_label": "C/W/W",
+
+  "multi_question": {
+    "question": "Albert Apponyi와 Gyula Horn 중 누가 더 다양한 종류의 recognition(상·훈장·직위·명예 등)을 받았는가?",
+    "gold": "Gyula Horn",
+    "prediction": "Gyula Horn",
+    "is_correct": true
+  },
+
+  "sub_questions": [
+    {
+      "qid": "sub1",
+      "entity": "Albert Apponyi",
+      "question": "Albert Apponyi는 얼마나 다양한 종류의 recognition(상·훈장·직위·명예 등)을 받았는가?",
+      "gold": 5,
+      "prediction": 2,
+      "is_correct": false
+    },
+    {
+      "qid": "sub2",
+      "entity": "Gyula Horn",
+      "question": "Gyula Horn은 얼마나 다양한 종류의 recognition(상·훈장·직위·명예 등)을 받았는가?",
+      "gold": 1,
+      "prediction": 2,
+      "is_correct": false
+    }
+  ],
+
+  "analysis": {
+    "summary": "모델은 두 sub-question에서 모두 잘못된 수치를 예측했음에도 불구하고, 최종 comparison 질문에는 정답을 맞춤.",
+    "interpretation": "이는 모델이 실제로는 sub-question 기반의 multi-hop reasoning을 수행하지 않고, 내부 지식 또는 shortcut heuristic에 의해 최종 답을 도출했을 가능성을 시사함.",
+    "note": "겉보기에는 multi-hop reasoning을 수행한 것처럼 보이지만, 실제 추론 경로는 비정상적(C/W/W)임."
+  }
+}
