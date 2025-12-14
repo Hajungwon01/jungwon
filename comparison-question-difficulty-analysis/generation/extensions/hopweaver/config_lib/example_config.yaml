@@ -1,0 +1,39 @@
+generator_model: gpt-4o-mini            # 최종 질문 생성 (자연스러움 유지 + 80% 저렴)
+entity_extractor_model: gpt-3.5-turbo   # 엔티티/속성 추출 (가장 반복 많은 단계)
+question_generator_model: gpt-3.5-turbo # 비교/브리지 질문 1차 생성
+polisher_model: gpt-4o                  # 질문 다듬기 (최종 품질 보정)
+filter_model: gpt-4o-mini               # 품질 검증 (Judge는 mini로 충분)
+
+generation_params:
+  max_tokens: 512
+
+seed: 35
+
+# === 검색기 설정 ===
+retrieval_method: gte
+retrieval_topk: 2                 # 줄여서 비용 절약
+retrieval_batch_size: 128
+retrieval_use_fp16: True
+retrieval_query_max_length: 1024
+output_dir: "/home/dilab/Desktop/jeongwon/naver/dataset_creation/hopweaver/HopWeaver/output"
+
+generator_max_input_len: 4096
+generator_batch_size: 2
+
+openai_setting:
+  api_key: ""
+  base_url: "https://api.openai.com/v1"
+
+corpus_path: "/home/dilab/Desktop/jeongwon/naver/dataset_creation/data/wiki18_fulldoc_trimmed_4096.jsonl"
+
+model2path:
+  gte: "/home/dilab/Desktop/jeongwon/naver/dataset_creation/hopweaver/model/gte-multilingual-base"
+
+model2pooling:
+  gte: "cls"
+
+method2index:
+  gte: "/home/dilab/Desktop/jeongwon/naver/dataset_creation/data/gte_Flat.index"
+
+method2corpus:
+  gte: "/home/dilab/Desktop/jeongwon/naver/dataset_creation/data/wiki18_fulldoc_trimmed_4096.jsonl"
