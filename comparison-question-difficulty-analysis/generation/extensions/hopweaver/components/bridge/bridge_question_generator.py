@@ -6,7 +6,7 @@ sys.path.append(project_root)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from flashrag.generator import OpenaiGenerator
 from flashrag.config import Config
-from hopweaver.components.utils.prompts import SUB_QUESTION_GENERATION_PROMPT, MULTI_HOP_QUESTION_SYNTHESIS_PROMPT
+from hopweaver.components.utils.prompts import SUB_QUESTION_GENERATION_PROMPT, MULTI_HOP_QUESTION_SYNTHESIS_PROMPT, SUB_QUESTION_GENERATION_3HOP_PROMPT, HOP3_QUESTION_SYNTHESIS_PROMPT
 
 class QuestionGenerator:
     """Multi-hop question generator"""
@@ -22,7 +22,7 @@ class QuestionGenerator:
         # Set maximum token count
         if "generation_params" not in self.config:
             self.config["generation_params"] = {}
-        self.config["generation_params"]["max_tokens"] = 4096
+        self.config["generation_params"]["max_completion_tokens"] = 4096
         
         # Initialize generator
         self.generator = self._initialize_model()
@@ -87,6 +87,124 @@ class QuestionGenerator:
             except Exception as e:
                 print(f"Error generating sub-questions (attempt {attempt+1}/{max_retry}): {str(e)}")
                 
+        return None
+    def generate_3_sub_questions(
+        self,
+        bridge_entity1,
+        entity_type1,
+        bridge_entity2,
+        entity_type2,
+        doc_a_segments,
+        doc_b_document,
+        doc_c_document,
+        max_retry=3,
+    ):
+        """
+        3-hop (문서 A,B,C + bridge_entity1, bridge_entity2)용 서브질문 생성 함수.
+
+        Inputs:
+            bridge_entity1: str, A→B를 잇는 브리지 엔티티 이름
+            entity_type1  : str, bridge_entity1 타입
+            bridge_entity2: str, B→C를 잇는 브리지 엔티티 이름
+            entity_type2  : str, bridge_entity2 타입
+            doc_a_segments: str, Document A 관련 segment (이미 추출된 부분)
+            doc_b_document: str, Document B 전체(or 주요) 텍스트
+            doc_c_document: str, Document C 전체(or 주요) 텍스트
+        Returns:
+            {
+                "analysis": {
+                    "bridge_connection1",
+                    "bridge_connection2",
+                    "doc_a_seg",
+                    "doc_b_seg",
+                    "doc_c_seg",
+                    "reasoning_path1",
+                    "reasoning_path2",
+                },
+                "sub_questions": [
+                    {"question", "answer", "source"},  # A
+                    {"question", "answer", "source"},  # B
+                    {"question", "answer", "source"},  # C
+                ]
+            }
+            or None (실패 / INVALID_BRIDGE_CONNECTION)
+        """
+        # 기본 입력 체크
+        if (
+            not bridge_entity1
+            or not bridge_entity2
+            or not doc_a_segments
+            or not doc_b_document
+            or not doc_c_document
+        ):
+            print("Warning: Missing necessary input parameters for 3-hop sub-question generation")
+            return None
+
+        # 프롬프트 구성
+        prompt = SUB_QUESTION_GENERATION_3HOP_PROMPT.format(
+            bridge_entity1=bridge_entity1,
+            bridge_entity2=bridge_entity2,
+            entity_type1=entity_type1 if entity_type1 else "entity",
+            entity_type2=entity_type2 if entity_type2 else "entity",
+            doc_a_segments=doc_a_segments,
+            doc_b_document=doc_b_document,
+            doc_c_document=doc_c_document,
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        for attempt in range(max_retry):
+            try:
+                if attempt > 0:
+                    print(f"[3-hop] Retrying attempt {attempt+1}/{max_retry}...")
+
+                response = self.generator.generate([messages])
+                if not response or response[0] is None:
+                    print("[3-hop] Empty response")
+                    continue
+
+                raw = response[0]
+                cleaned = raw.replace("<|COMPLETE|>", "").strip()
+
+                # INVALID_BRIDGE_CONNECTION 처리
+                if cleaned.startswith("INVALID_BRIDGE_CONNECTION"):
+                    reason = ""
+                    parts = cleaned.split("\n", 1)
+                    if len(parts) > 1:
+                        reason = parts[1]
+                    print("[3-hop] Invalid bridge connection:", reason)
+                    return None
+
+                print("[3-hop] Raw response:", raw)
+
+                # 3-hop 전용 파서로 파싱
+                result = self._parse_3hop_sub_questions_response(raw)
+                print("[3-hop] Parsed result:", result)
+
+                if (
+                    result
+                    and "analysis" in result
+                    and "sub_questions" in result
+                    and len(result["sub_questions"]) == 3
+                ):
+                    # Document B, C segment 최소 길이 체크 (옵션)
+                    analysis = result.get("analysis", {})
+                    if "doc_b_seg" in analysis:
+                        b_words = len(analysis["doc_b_seg"].split())
+                        if b_words < 20:
+                            print(f"[3-hop] Document B segment too short ({b_words} words), retrying...")
+                            continue
+                    if "doc_c_seg" in analysis:
+                        c_words = len(analysis["doc_c_seg"].split())
+                        if c_words < 20:
+                            print(f"[3-hop] Document C segment too short ({c_words} words), retrying...")
+                            continue
+
+                    return result
+
+            except Exception as e:
+                print(f"[3-hop] Error generating sub-questions (attempt {attempt+1}/{max_retry}): {str(e)}")
+
         return None
     
     def _parse_sub_questions_response(self, response):
@@ -195,6 +313,289 @@ class QuestionGenerator:
             print(f"Response content first line: {first_line}")
             return None
     
+    def _parse_3hop_sub_questions_response(self, response):
+        """
+        SUB_QUESTION_GENERATION_3HOP_PROMPT 포맷에 맞는 3-hop 서브질문 응답 파서.
+
+        기대 포맷:
+        - INVALID_BRIDGE_CONNECTION ...  (이 경우 None 리턴)
+        - 아니면:
+
+          ANALYSIS:
+          Bridge connection 1: ...
+          Bridge connection 2: ...
+          Document A segments: ...
+          Document B segments: ...
+          Document C segments: ...
+          Reasoning path 1: ...
+          Reasoning path 2: ...
+
+          SUB-QUESTIONS:
+          Sub-question 1: ...
+          Answer 1: ...
+          Sub-question 2: ...
+          Answer 2: ...
+          Sub-question 3: ...
+          Answer 3: ...
+        """
+        try:
+            response = response.replace("<|COMPLETE|>", "").strip()
+
+            # INVALID_BRIDGE_CONNECTION 처리 (안전망)
+            if response.startswith("INVALID_BRIDGE_CONNECTION"):
+                print(
+                    "[3-hop] Invalid bridge connection:",
+                    response.split("\n")[1] if len(response.split("\n")) > 1 else "No reason provided",
+                )
+                return None
+
+            if "SUB-QUESTIONS:" not in response:
+                print("[3-hop] 'SUB-QUESTIONS:' not found in response")
+                return None
+
+            analysis_part, sub_questions_part = response.split("SUB-QUESTIONS:", 1)
+            analysis_part = analysis_part.strip()
+            sub_questions_part = "SUB-QUESTIONS:" + sub_questions_part.strip()
+
+            # ---- ANALYSIS 파싱 ----
+            analysis = {}
+            section_markers = [
+                "Bridge connection 1:",
+                "Bridge connection 2:",
+                "Document A segments:",
+                "Document B segments:",
+                "Document C segments:",
+                "Reasoning path 1:",
+                "Reasoning path 2:",
+            ]
+
+            sections = {}
+            current_marker = None
+            current_content = []
+
+            lines = analysis_part.split("\n")
+            for line in lines:
+                stripped = line.rstrip()
+                if not stripped:
+                    continue
+
+                found_marker = False
+                for marker in section_markers:
+                    if stripped.startswith(marker):
+                        # 이전 섹션 저장
+                        if current_marker is not None:
+                            sections[current_marker] = "\n".join(current_content).strip()
+
+                        current_marker = marker
+                        # 같은 줄에 내용이 있으면 바로 추출
+                        content_in_line = stripped[len(marker):].strip()
+                        current_content = [content_in_line] if content_in_line else []
+                        found_marker = True
+                        break
+
+                if not found_marker and current_marker is not None:
+                    current_content.append(stripped)
+
+            if current_marker is not None and current_content:
+                sections[current_marker] = "\n".join(current_content).strip()
+
+            # sections → analysis 매핑
+            if "Bridge connection 1:" in sections:
+                analysis["bridge_connection1"] = sections["Bridge connection 1:"]
+            if "Bridge connection 2:" in sections:
+                analysis["bridge_connection2"] = sections["Bridge connection 2:"]
+            if "Document A segments:" in sections:
+                analysis["doc_a_seg"] = sections["Document A segments:"]
+            if "Document B segments:" in sections:
+                analysis["doc_b_seg"] = sections["Document B segments:"]
+            if "Document C segments:" in sections:
+                analysis["doc_c_seg"] = sections["Document C segments:"]
+            if "Reasoning path 1:" in sections:
+                analysis["reasoning_path1"] = sections["Reasoning path 1:"]
+            if "Reasoning path 2:" in sections:
+                analysis["reasoning_path2"] = sections["Reasoning path 2:"]
+
+            print(
+                "[3-hop] Extracted segments word counts:",
+                "A =", len(analysis.get("doc_a_seg", "").split()),
+                "B =", len(analysis.get("doc_b_seg", "").split()),
+                "C =", len(analysis.get("doc_c_seg", "").split()),
+            )
+
+            # ---- SUB-QUESTIONS 파싱 ----
+            sub_questions = []
+            for i in range(1, 4):  # 1,2,3
+                q_marker = f"Sub-question {i}:"
+                a_marker = f"Answer {i}:"
+                next_q_marker = f"Sub-question {i+1}:" if i < 3 else None
+
+                if q_marker not in sub_questions_part or a_marker not in sub_questions_part:
+                    continue
+
+                # 질문 추출
+                after_q = sub_questions_part.split(q_marker, 1)[1]
+                if a_marker in after_q:
+                    question = after_q.split(a_marker, 1)[0].strip()
+                else:
+                    question = after_q.strip()
+
+                # 답 추출
+                after_a = sub_questions_part.split(a_marker, 1)[1]
+                if next_q_marker and next_q_marker in after_a:
+                    answer = after_a.split(next_q_marker, 1)[0].strip()
+                else:
+                    answer = after_a.strip()
+
+                # source 태그: 1→A, 2→B, 3→C
+                if i == 1:
+                    source = "Document A"
+                elif i == 2:
+                    source = "Document B"
+                else:
+                    source = "Document C"
+
+                sub_questions.append(
+                    {
+                        "question": question,
+                        "answer": answer,
+                        "source": source,
+                    }
+                )
+
+            if not sub_questions:
+                print("[3-hop] No sub-questions parsed")
+                return None
+
+            return {
+                "analysis": analysis,
+                "sub_questions": sub_questions,
+            }
+
+        except Exception as e:
+            print(f"[3-hop] Error parsing 3-hop sub-question response: {str(e)}")
+            first_line = response.split("\n")[0] if response else "(Empty response)"
+            print(f"[3-hop] Response content first line: {first_line}")
+            return None
+
+    def synthesize_3_hop_question(self, hop_sub_results, documents=None, bridge_entities=None, max_retry=1):
+        """
+        3-hop 전용 multi-hop 질문 합성 함수.
+
+        기대 입력 형식:
+            hop_sub_results: 길이 1인 리스트
+              hop_sub_results[0] = {
+                  "analysis": {
+                      "bridge_connection1", "bridge_connection2",
+                      "doc_a_seg", "doc_b_seg", "doc_c_seg",
+                      "reasoning_path1", "reasoning_path2",
+                      ...
+                  },
+                  "sub_questions": [
+                      {"question", "answer", "source"},  # Sub-question 1 (Document A)
+                      {"question", "answer", "source"},  # Sub-question 2 (Document B)
+                      {"question", "answer", "source"},  # Sub-question 3 (Document C)
+                  ],
+              }
+
+        documents, bridge_entities 인자는 현재 프롬프트에는 직접 사용하지 않지만,
+        상위 호출부와의 인터페이스를 맞추기 위해 남겨둔다.
+        """
+        # ------------------------------
+        # 입력 검증
+        # ------------------------------
+        if not hop_sub_results or len(hop_sub_results) != 1:
+            print("[3-hop] synthesize_3_hop_question expects hop_sub_results to be a single aggregated 3-hop block.")
+            print(f"[3-hop] got len(hop_sub_results) = {len(hop_sub_results) if hop_sub_results is not None else 'None'}")
+            return None
+
+        block = hop_sub_results[0]
+        analysis = block.get("analysis", {}) or {}
+        sub_qs = block.get("sub_questions", []) or []
+
+        if len(sub_qs) != 3:
+            print(f"[3-hop] Expected exactly 3 sub-questions, but got {len(sub_qs)}")
+            return None
+
+        # ------------------------------
+        # HOP SUB-RESULT 문자열 구성 (프롬프트의 {hop_sub_results} 자리에 들어갈 텍스트)
+        # ------------------------------
+        lines = []
+        lines.append("ANALYSIS:")
+
+        # bridge connections
+        if "bridge_connection1" in analysis:
+            lines.append(f"Bridge connection 1: {analysis.get('bridge_connection1', '')}")
+        if "bridge_connection2" in analysis:
+            lines.append(f"Bridge connection 2: {analysis.get('bridge_connection2', '')}")
+
+        # segments
+        lines.append(f"Document A segments: {analysis.get('doc_a_seg', '')}")
+        lines.append(f"Document B segments: {analysis.get('doc_b_seg', '')}")
+        lines.append(f"Document C segments: {analysis.get('doc_c_seg', '')}")
+
+        # reasoning paths
+        if "reasoning_path1" in analysis:
+            lines.append(f"Reasoning path 1: {analysis.get('reasoning_path1', '')}")
+        if "reasoning_path2" in analysis:
+            lines.append(f"Reasoning path 2: {analysis.get('reasoning_path2', '')}")
+
+        lines.append("")
+        lines.append("SUB-QUESTIONS:")
+
+        for i, q in enumerate(sub_qs, start=1):
+            q_text = q.get("question", "")
+            a_text = q.get("answer", "")
+            src = q.get("source", "")
+            lines.append(f"Sub-question {i}: {q_text}")
+            lines.append(f"Answer {i}: {a_text}")
+            if src:
+                lines.append(f"Source: {src}")
+            lines.append("")
+
+        hop_sub_results_str = "\n".join(lines).strip()
+
+        # ------------------------------
+        # 프롬프트 구성 (3-hop 전용 MULTI_HOP_QUESTION_SYNTHESIS_PROMPT 사용)
+        # ------------------------------
+        prompt = HOP3_QUESTION_SYNTHESIS_PROMPT.format(
+            hop_sub_results=hop_sub_results_str
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        # ------------------------------
+        # LLM 호출 + 파싱
+        # ------------------------------
+        for attempt in range(max_retry):
+            try:
+                if attempt > 0:
+                    print(f"[3-hop] Retrying 3-hop synthesis (attempt {attempt+1}/{max_retry})...")
+
+                response = self.generator.generate([messages])
+                if not response or response[0] is None:
+                    print("[3-hop] Empty response from generator in 3-hop synthesis")
+                    continue
+
+                raw = response[0]
+                cleaned = raw.replace("<|COMPLETE|>", "").strip()
+
+                # NONE 패턴 처리
+                if cleaned.startswith("NONE"):
+                    parts = cleaned.split("\n", 1)
+                    reason_line = parts[1] if len(parts) > 1 else ""
+                    print("[3-hop] 3-hop synthesis returned NONE:", reason_line)
+                    return None
+
+                # 공통 파서 재사용 (출력 포맷은 2-hop 때와 동일 헤더 사용)
+                result = self._parse_multi_hop_synthesis_response(raw)
+                if result and "multi_hop_question" in result and "answer" in result:
+                    return result
+
+            except Exception as e:
+                print(f"[3-hop] Error in 3-hop synthesis (attempt {attempt+1}/{max_retry}): {str(e)}")
+
+        return None
+
     def synthesize_multi_hop_question(self, sub_questions_result, max_retry=1):
         """Synthesize multi-hop question
         
