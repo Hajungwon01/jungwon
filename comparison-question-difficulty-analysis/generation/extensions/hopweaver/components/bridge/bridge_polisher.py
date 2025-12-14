@@ -6,7 +6,7 @@ sys.path.append(project_root)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from flashrag.generator import OpenaiGenerator
 from flashrag.config import Config
-from hopweaver.components.utils.prompts import POLISHER_PROMPT
+from hopweaver.components.utils.prompts import POLISHER_PROMPT, N_HOP_POLISHER_PROMPT
 
 class Polisher:
     """Multi-hop question polisher to improve the quality of multi-hop questions, supporting PASS, ADJUST, REWORKED, and REJECTED statuses"""
@@ -22,7 +22,7 @@ class Polisher:
         # Set maximum token count
         if "generation_params" not in self.config:
             self.config["generation_params"] = {}
-        self.config["generation_params"]["max_tokens"] = 4096
+        self.config["generation_params"]["max_completion_tokens"] = 4096
         
         # Initialize generator
         self.generator = self._initialize_model()
@@ -102,7 +102,146 @@ class Polisher:
                 
         # All retries failed
         return {"status": "ERROR", "message": f"Refinement failed after {max_retry} attempts"}
-    
+
+    def polish_n_hop_question(
+        self,
+        multi_hop_question,
+        answer,
+        reasoning_path,
+        hop_sub_results,
+        documents,
+        max_retry=3,
+    ):
+        """Refine N-hop multi-hop questions (3-hop 이상도 지원)
+
+        Args:
+            multi_hop_question (str): 합성된 N-hop 질문
+            answer (str): 질문의 정답
+            reasoning_path (str): (생성기에서 온) 추론 경로 설명
+            hop_sub_results (list[dict]):
+                각 hop 에서 generate_sub_questions 가 반환한 dict 리스트.
+                예시 형식:
+                {
+                    "analysis": {
+                        "bridge_connection": ...,
+                        "doc_a_seg": ...,
+                        "doc_b_seg": ...,
+                        "reasoning_path": ...
+                    },
+                    "sub_questions": [
+                        {"question": ..., "answer": ..., "source": ...},
+                        ...
+                    ]
+                }
+            documents (list[dict]):
+                문서 체인. 최소 {"title", "contents" 또는 "content"} 필드를 가진다고 가정.
+            max_retry (int): LLM 호출 재시도 횟수
+        """
+        # 기본 검증
+        if (
+            not multi_hop_question
+            or not answer
+            or not hop_sub_results
+            or not documents
+        ):
+            print("Warning: Missing necessary input parameters for N-hop polishing")
+            return {"status": "ERROR", "message": "Missing necessary input parameters for N-hop polishing"}
+
+        # ------------------------------
+        # Sub-questions summary 문자열 구성
+        # ------------------------------
+        hop_blocks = []
+        for hop_idx, sub_res in enumerate(hop_sub_results, start=1):
+            analysis = sub_res.get("analysis", {}) or {}
+            sub_qs = sub_res.get("sub_questions", []) or []
+
+            lines = []
+            lines.append(f"[Hop {hop_idx}]")
+            lines.append("ANALYSIS:")
+            lines.append(f"- Bridge connection: {analysis.get('bridge_connection', '')}")
+            lines.append(f"- Document A segments: {analysis.get('doc_a_seg', '')}")
+            lines.append(f"- Document B segments: {analysis.get('doc_b_seg', '')}")
+            lines.append(f"- Reasoning path: {analysis.get('reasoning_path', '')}")
+            lines.append("")
+            lines.append("SUB-QUESTIONS:")
+
+            for q_idx, q in enumerate(sub_qs, start=1):
+                q_text = q.get("question", "")
+                a_text = q.get("answer", "")
+                src = q.get("source", "")
+                lines.append(f"Sub-question {q_idx}: {q_text}")
+                lines.append(f"Answer {q_idx}: {a_text}")
+                if src:
+                    lines.append(f"Source: {src}")
+                lines.append("")
+
+            hop_blocks.append("\n".join(lines).strip())
+
+        sub_questions_summary = "\n\n".join(hop_blocks).strip()
+
+        # ------------------------------
+        # Document chain segments 문자열 구성
+        # ------------------------------
+        doc_chain_lines = []
+        for i, d in enumerate(documents):
+            title = d.get("title", "No Title")
+            contents = d.get("contents") or d.get("content", "")
+            preview = contents[:400]
+            if len(contents) > 400:
+                preview = preview + "..."
+            doc_chain_lines.append(f"[Document {i}] Title: {title}")
+            doc_chain_lines.append(f"Segment: {preview}")
+            doc_chain_lines.append("")
+
+        document_chain_segments = "\n".join(doc_chain_lines).strip()
+
+        # ------------------------------
+        # 프롬프트 구성
+        # ------------------------------
+        prompt = N_HOP_POLISHER_PROMPT.format(
+            multi_hop_question=multi_hop_question,
+            answer=answer,
+            reasoning_path=reasoning_path if reasoning_path else "",
+            sub_questions_summary=sub_questions_summary,
+            document_chain_segments=document_chain_segments,
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        # ------------------------------
+        # LLM 호출 + 파싱 (기존 로직 재사용)
+        # ------------------------------
+        for attempt in range(max_retry):
+            try:
+                if attempt > 0:
+                    print(f"N-hop polishing retry attempt {attempt + 1}...")
+
+                response = self.generator.generate([messages])
+
+                if not response or response[0] is None:
+                    print(f"Warning: Generator returned empty response in N-hop polishing (attempt {attempt+1}/{max_retry})")
+                    continue
+
+                print("Full raw N-hop polisher response:")
+                print("-" * 80)
+                print(response[0])
+                print("-" * 80)
+
+                # 기존 2-hop용 파서 그대로 사용
+                result = self._parse_polish_response(response[0])
+
+                if result and result.get("status") != "ERROR":
+                    return result
+                elif result and result.get("status") == "ERROR":
+                    print(f"N-hop polishing parsing error: {result.get('message', '')}, will retry")
+                    if attempt == max_retry - 1:
+                        return result
+
+            except Exception as e:
+                print(f"Error refining N-hop question (attempt {attempt+1}/{max_retry}): {str(e)}")
+
+        return {"status": "ERROR", "message": f"N-hop refinement failed after {max_retry} attempts"}
+
     def _parse_polish_response(self, response):
         """Parse refinement response, extract status and content
         

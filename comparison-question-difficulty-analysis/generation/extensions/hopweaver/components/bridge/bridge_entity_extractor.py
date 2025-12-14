@@ -25,7 +25,7 @@ class EntityExtractor:
     def __init__(self, config):
         self.config = config
         self.config["generator_model"] = self.config["entity_extractor_model"]
-        self.config["generation_params"]["max_tokens"] = 4096
+        self.config["generation_params"]["max_completion_tokens"] = 4096
         # Initialize generator
         self.generator = self._initialize_model()
     
@@ -83,7 +83,7 @@ class EntityExtractor:
                         if "segments" in entity and entity["segments"]:
                             for i, segment in enumerate(entity["segments"]):
                                 segment_words = len(segment.split())
-                                if segment_words < 20:
+                                if segment_words < 20: # 완화
                                     print(f"Warning: Paragraph {i+1} of entity '{entity['name']}' has only {segment_words} words, less than the required 20 words")
                                     segments_too_short = True
                                     break
