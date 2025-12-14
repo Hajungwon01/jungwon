@@ -41,6 +41,8 @@ Respond ONLY with a JSON object:
 
 # Evaluation prompt template
 # Bridge question evaluation - Question only mode
+# Evaluation prompt template
+# Bridge question evaluation - Question only mode
 BRIDGE_QA_ONLY_PROMPT = """You are an AI assistant designed for exact answer extraction.
 
 IMPORTANT INSTRUCTIONS FOR ANSWERING:
@@ -89,6 +91,32 @@ Examples:
 - Question: Who was the first president of the United States?
   Correct: George Washington
   Incorrect: Based on the documents, George Washington was the first president.
+
+Your goal is to match the exact expected answer format."""
+
+# Comparison question evaluation - Question only mode
+COMPARISON_QA_ONLY_PROMPT = """You are an AI assistant designed for exact answer extraction.
+
+IMPORTANT INSTRUCTIONS FOR ANSWERING:
+1. Provide ONLY the exact answer - a name, date, term, or short phrase.
+2. DO NOT write complete sentences or explanations.
+3. DO NOT use punctuation at the end of your answer.
+4. DO NOT include articles like 'the', 'a', or 'an' unless they are part of a name.
+5. DO NOT use formatting like bold, italics, or bullet points.
+6. If the answer is a date, use the format: Month Day, Year (e.g. April 16, 1934).
+7. If the answer is a person's name, provide only their full name.
+8. If the answer is a place, provide only the place name.
+9. Answer in English ONLY.
+10. Keep your answer to 10 words or fewer whenever possible.
+
+Examples:
+- Question: When was Albert Einstein born?
+  Correct: March 14, 1879
+  Incorrect: Albert Einstein was born on March 14, 1879.
+
+- Question: Who discovered penicillin?
+  Correct: Alexander Fleming
+  Incorrect: The person who discovered penicillin was Alexander Fleming.
 
 Your goal is to match the exact expected answer format."""
 
@@ -264,26 +292,34 @@ Output:
 
 # Sub-question generation prompt
 SUB_QUESTION_GENERATION_PROMPT = """---Goal---
-Analyze two documents connected by a bridge entity and generate two sequential sub-questions that form a multi-hop reasoning chain.
+Analyze three documents connected by two bridge entities and generate three sequential sub-questions that form a multi-hop reasoning chain.
 
 ---Instructions---
-Analyze how the bridge entity connects both documents by:
-- Identifying key information about the bridge entity in Document A that is unique to Document A (not mentioned or implied in Document B).
-- Finding related information in Document B that connects via this bridge entity and is unique to Document B (not mentioned or implied in Document A).
+Analyze how the bridge entities connect three documents (Document A → Document B → Document C) by performing the following steps for each stage:
+1. Document A → Document B using bridge entity 1:
+- Identifying key information about the bridge entity 1 in Document A that is unique to Document A (not mentioned or implied in Document B).
+- Finding related information in Document B that connects via this bridge entity 1 and is unique to Document B (not mentioned or implied in Document A).
 - Determining a clear reasoning path where the unique information from Document A leads to the unique information in Document B.
 - If Documents A and B do not form a valid bridge entity connection, or if Document B's content appears to describe a different entity with a similar name but significantly different characteristics (entity disambiguation issue), return an error identifier "INVALID_BRIDGE_CONNECTION" along with a brief explanation of why the connection is invalid.
 
-Generate two sequential sub-questions:
-- Sub-question 1: A question about Document A where the answer is the bridge entity, using only information exclusive to Document A. The bridge entity should not appear in the question's wording.
-- Sub-question 2: A question that explicitly uses the bridge entity (from the answer to Sub-question 1) in its wording to find related information in Document B, using only information exclusive to Document B.
+2. Document B → Document C using bridge entity  2:
+- Identifying key information about the bridge entity 2 in Document B that is unique to Document B (not mentioned or implied in Document C).
+- Finding related information in Document C that connects via this bridge entity 2 and is unique to Document C (not mentioned or implied in Document B).
+- Determining a clear reasoning path where the unique information from Document B leads to the unique information in Document C.
+- If Documents B and C do not form a valid bridge entity connection, or if Document C's content appears to describe a different entity with a similar name but significantly different characteristics (entity disambiguation issue), return an error identifier "INVALID_BRIDGE_CONNECTION" along with a brief explanation of why the connection is invalid.
+
+Generate three sequential sub-questions:
+- Sub-question 1: A question about Document A where the answer is the bridge entity 1, using only information exclusive to Document A. The bridge entity 1 and bridge entity 2 should not appear in the question's wording.
+- Sub-question 2: A question that explicitly uses the bridge entity 1 (from the answer to Sub-question 1) in its wording to find related information in Document B, using only information exclusive to Document B.
+- Sub-question 3: A question that explicitly uses "the bridge entity 2" (from the answer to Sub-question 2) in its wording to find related information in Document C, using only information exclusive to Document C.
 
 Each sub-question must:
 - Be answerable from only one document.
-- Have a definitive answer contained in its document, based on information that does not appear or cannot be inferred from the other document.
-- Be phrased as a standalone question without phrases like "According to Document A/B" or similar document references.
+- Have a definitive answer contained in its document, based on information that does not appear or cannot be inferred from any other document in the chain.
+- Be phrased as a standalone question without phrases like "According to Document A/B/C" or similar document references.
 - Be specific with clear and unambiguous references to information in its respective document.
 - Provide an answer that is clear, concise, and not a full sentence (e.g., a name, number, or short phrase).
-- Together form a logical reasoning chain where the answer to Sub-question 1 (the bridge entity or its unique information) is necessary to answer Sub-question 2.
+- Together form a logical reasoning chain where the answer 1 to Sub-question 1 / answer 2 to Sub-question 2 (the bridge entity 1 / the bridge entity 2 or its unique information) is necessary to answer Sub-question 2 / Sub-question 3.
 
 Format your output exactly as follows:
 
@@ -293,28 +329,39 @@ Reason: [Brief explanation why the documents cannot form a valid bridge connecti
 
 <!-- If valid bridge connection exists -->
 ANALYSIS:
-Bridge connection: [How the bridge entity connects the documents]
+Bridge connection 1: [How the bridge entity 1 connects the document A and B]
+Bridge connection 2: [How the bridge entity 2 connects the document B and C]
 Document A segments: [Copy of the original Document A segments provided in the input]
-Document B segments: [Relevant excerpts from Document B that connect to the bridge entity, structured similarly to Document A segments, preferably containing between 50-200 words to ensure complete information while avoiding excessive length]
-Reasoning path: [Logical path from Document A to Document B]
+Document B segments: [Relevant excerpts from Document B that connect to the bridge entity 1, structured similarly to Document A segments, preferably containing between 50-200 words to ensure complete information while avoiding excessive length]
+Document C segments: [Relevant excerpts from Document C that connect to the bridge entity 2, structured similarly to Document B segments, preferably containing between 50-200 words to ensure complete information while avoiding excessive length]
+Reasoning path 1: [Logical path from Document A to Document B]
+Reasoning path 2: [Logical path from Document B to Document C]
 
 SUB-QUESTIONS:
 Sub-question 1: [Question about Document A]
-Answer 1: [Answer from Document A - about the bridge entity]
+Answer 1: [the bridge entity 1]
 
-Sub-question 2: [Question using bridge entity to find answer in Document B]
-Answer 2: [Answer from Document B]
+Sub-question 2: [Question using bridge entity 1(Answer 1) to find answer in Document B]
+Answer 2: [the bridge entity 2]
+
+Sub-question 3: [Question using bridge entity 2(Answer 2) to find answer in Document C]
+Answer 3: [Answer from Document C]
 
 ---Real Data---
 ##################
-Bridge Entity: {bridge_entity}
-Entity Type: {entity_type}
+Bridge Entity 1: {bridge_entity1}
+Bridge Entity 2: {bridge_entity2}
+Entity Type 1: {entity_type1}
+Entity Type 2: {entity_type2}
 
 Document A (Relevant Segments):
 {doc_a_segments}
 
 Document B (Retrieved Document):
 {doc_b_document}
+
+Document C (Retrieved Document):
+{doc_c_document}
 ##################
 
 Output:
@@ -373,49 +420,91 @@ Output:
 
 # Multi-hop question synthesis prompt
 MULTI_HOP_QUESTION_SYNTHESIS_PROMPT = """---Goal---
-Synthesize a concise, natural multi-hop question that requires reasoning across two documents, connecting two sub-questions into a single logical inquiry.
+Synthesize a concise, natural 3-hop multi-hop question that requires reasoning across three documents (Document A, Document B, and Document C). 
+The final question should reflect the entire 3-step reasoning chain, not just a single hop.
 
 ---Instructions---
-- FIRST, check if Answer 1 (from the first sub-question) is included in the text of the second sub-question. If it is NOT included, return "NONE" as the result and explain that the bridge entity wasn't properly utilized in the second question.
-- Review the analysis and sub-questions to trace the full reasoning chain, identifying the bridge entity and unique information from each document.
-- Create a single multi-hop question that:
-  - Is ONE cohesive question, not multiple questions combined or concatenated
-  - Requires distinct information from both Document A and Document B to answer
-  - Reads naturally as a coherent, conversational question
-  - Cannot be fully answered using only one document
-  - Follows the reasoning path of the sub-questions, using the bridge entity from Sub-question 1's answer to link to Sub-question 2's information
-  - Is clear, concise, and free of ambiguity
-  - Doesn't explicitly mention the bridge entity or intermediate reasoning steps (these should be discovered through reasoning)
-- If the two sub-questions cannot be combined into a valid multi-hop question that meets all the above criteria, return "NONE" as the result with a brief explanation of why.
-- Ensure:
-  - The answer matches Answer 2 from the sub-questions
-  - The reasoning path integrates the unique contributions of both documents, as outlined in the analysis
+You are given one HOP SUB-RESULT block that summarizes a 3-document chain:
+- An ANALYSIS section containing:
+  - bridge_connection1: how Document A and Document B are connected
+  - bridge_connection2: how Document B and Document C are connected
+  - doc_a_seg: key segment(s) from Document A
+  - doc_b_seg: key segment(s) from Document B
+  - doc_c_seg: key segment(s) from Document C
+  - reasoning_path1: how information flows from Document A to Document B
+  - reasoning_path2: how information flows from Document B to Document C
+- A list of SUB-QUESTIONS with their answers and sources, where:
+  - Sub-question 1 is answered from Document A
+  - Sub-question 2 is answered from Document B
+  - Sub-question 3 is answered from Document C
+
+The typical intended structure is:
+- Sub-question 1: introduces a bridge entity from Document A (Answer 1)
+- Sub-question 2: uses that bridge entity and introduces the next bridge entity from Document B (Answer 2)
+- Sub-question 3: uses the second bridge entity to reach the final target in Document C (Answer 3)
+
+Your task is to:
+
+1. Validate that the bridge entities are actually reused in downstream sub-questions:
+   - FIRST, check if Answer 1 (from Sub-question 1) is included in the text of Sub-question 2.
+   - SECOND, check if Answer 2 (from Sub-question 2) is included in the text of Sub-question 3.
+   If either of these checks fails, you MUST return "NONE" as the result and briefly explain that the bridge entities were not properly reused in later questions.
+
+2. Carefully read the ANALYSIS and SUB-QUESTIONS to trace the full 3-hop reasoning chain:
+   - Understand how Document A, Document B, and Document C each contribute distinct information.
+   - Understand how the reasoning moves from A -> B (via bridge_connection1) and from B -> C (via bridge_connection2).
+   - Identify the final endpoint of the reasoning chain (this should correspond to Answer 3).
+
+3. Create ONE 3-hop multi-hop question that:
+   - Is a single, coherent natural-language question (not multiple questions concatenated).
+   - Requires using distinct information from Document A, Document B, and Document C to answer.
+   - Cannot be fully answered using only one or two of the documents.
+   - Follows the reasoning path implied by reasoning_path1 and reasoning_path2:
+     - It implicitly uses the entity from Answer 1 to connect Document A to the information in Document B.
+     - It implicitly uses the entity from Answer 2 to connect Document B to the information in Document C.
+   - IMPORTANT : **Keeps all bridge entities and intermediate reasoning IMPLICIT in the question**
+     (they should be discovered by reasoning, not explicitly described as “bridge entities”).
+   - Is clear, concise, and free of ambiguity.
+
+4. The ANSWER you output must:
+   - Match Answer 3 from the sub-questions.
+   - Be a single final answer that corresponds to the final target of the 3-hop chain.
+   - Be directly supported by the information described in the ANALYSIS and SUB-QUESTIONS.
+
+5. The REASONING PATH you output should:
+   - Explicitly describe how information flows from Document A to Document B and then to Document C.
+   - Explain how each document contributes necessary information to reach the final answer.
+   - Make clear why the question cannot be answered without using all three documents.
+
+6. The SOURCES you output should:
+   - Explicitly mention "Document A", "Document B", and "Document C".
+   - Briefly state the role of each document
+     (for example, "Document A introduces X", "Document B links X to Y", "Document C provides Z", etc.).
+
+If you determine that a valid 3-hop question CANNOT be formed that truly requires all three documents and a non-trivial reasoning chain, you MUST return `NONE` as specified below.
 
 Format your output exactly as follows:
 
-<!-- If sub-questions cannot be combined into a valid multi-hop question -->
+<!-- If a valid 3-hop multi-hop question cannot be created -->
 NONE
-Reason: [Brief explanation why a valid multi-hop question cannot be created]
+Reason: [Brief explanation why a valid 3-hop multi-hop question cannot be created]
 
-<!-- If a valid multi-hop question can be created -->
-MULTI-HOP QUESTION: [Your synthesized question]
+<!-- If a valid 3-hop multi-hop question can be created -->
+MULTI-HOP QUESTION: [Your synthesized 3-hop question]
 
 ANSWER:
-[The final answer, matching Answer 2]
+[The final answer (must match Answer 3)]
 
 REASONING PATH:
-[Step-by-step explanation of the multi-hop process, showing how each document contributes]
+[Step-by-step explanation of the 3-hop reasoning process, showing how Document A, Document B, and Document C are used]
 
 SOURCES:
-[Document A and Document B, specifying their roles]
+[Which documents are used (Document A, Document B, Document C) and their roles]
 
 ---Real Data---
 ##################
-ANALYSIS:
-{analysis}
-
-SUB-QUESTIONS:
-{sub_questions}
+HOP SUB-RESULT:
+{hop_sub_results}
 ##################
 
 Output:
@@ -423,40 +512,48 @@ Output:
 
 # Polisher module prompt for multi-hop question validation and refinement
 POLISHER_PROMPT = """---Goal---
-Validate and refine multi-hop questions to ensure they genuinely require cross-document reasoning and follow a proper reasoning chain where information from one document is essential to answer a question about content in another document.
+Validate and refine **N-hop** multi-hop questions that require reasoning across an ordered chain of multiple documents. 
+Your job is to decide whether the question genuinely uses the whole (or substantial parts of the) document chain, 
+and to refine the wording and reasoning path when necessary.
 
 ---Instructions---
-You are a Polisher module responsible for validating and refining multi-hop questions. Given a multi-hop question, its suggested answer, reasoning path, and source document segments, you will evaluate the question's quality and make one of four decisions:
+You are a Polisher module responsible for validating and refining multi-hop questions. 
+Given:
+- a multi-hop question
+- its suggested answer and reasoning path
+- a list of sub-questions and answers across multiple hops
+- segments from an ordered document chain
 
-1. **PASS**: The question is valid, well-formed, and genuinely requires both documents.
-2. **ADJUST**: The question needs surface wording improvements only.
-3. **REWORKED**: The question needs substantial structural changes.
-4. **REJECTED**: The question has unfixable flaws.
+you will evaluate the question's quality and make one of four decisions:
+
+1. **PASS**: The question is valid, well-formed, and genuinely requires multiple documents in the chain.
+2. **ADJUST**: The question needs surface wording improvements only (fluency, clarity, minor wording).
+3. **REWORKED**: The question needs substantial structural changes (e.g., to better reflect the N-hop reasoning chain).
+4. **REJECTED**: The question has unfixable flaws (e.g., not really multi-hop, internally inconsistent, or unsupported).
 
 Review and modify the question based on these key dimensions:
 
-1. **True Multi-hop Necessity**: CRITICAL - A proper multi-hop question requires:
-   - Information must flow from Document A to Document B in a logical sequence
-   - The answer must be impossible to determine using either document in isolation
-   - The reasoning path must demonstrate how Document A provides context necessary for Document B
-   - The question should require discovering connections that aren't explicitly stated in either document
+1. **True Multi-hop Necessity (N-hop)**:
+   - Information should flow along the document chain (Document 0 → Document 1 → ... → Document K).
+   - The answer must be impossible (or clearly incomplete/ambiguous) if only a single document is used.
+   - The reasoning path must demonstrate how multiple documents contribute non-redundant information.
+   - The question should require connecting information that is distributed across different documents.
 
-2. **Hidden Bridge Structure**:
-   - The question should NOT directly mention the connecting entity or concept
-   - The bridge entity should remain implicit in the question wording
-   - The question should require identifying the relevant bridge entity as part of the reasoning process
-   - Reframe questions that explicitly name the bridge entity to make the reasoning more challenging
+2. **Hidden Bridge / Reasoning Structure**:
+   - The question should NOT explicitly spell out every intermediate step or connecting entity in detail.
+   - Intermediate entities or steps should be discoverable through reasoning, not fully enumerated in the question text.
+   - However, the question should still be clear and unambiguous in what it is asking.
 
 3. **Reasoning and Answer Quality**:
-   - Verify the reasoning follows a logical progression from Document A to Document B
-   - Ensure the answer is factually accurate according to both documents
-   - Check that the answer requires synthesizing information across documents
-   - Improve question wording for clarity, fluency, and natural conversational tone
-   - Remove any hints in the question that reveal the reasoning steps
+   - Verify the reasoning follows a logical, multi-step progression across the document chain.
+   - Ensure the answer is factually supported by the document chain.
+   - Check that the answer requires synthesizing information from multiple documents.
+   - Improve question wording for clarity, fluency, and natural conversational tone.
 
 ---Output Formats---
 
-IMPORTANT: Only output the exact content requested below WITHOUT any explanations, justifications, or additional text. Do not include your thought process, analysis, or reasoning. Only produce the specified outputs in the exact format shown.
+IMPORTANT: Only output the exact content requested below WITHOUT any explanations, justifications, or additional text. 
+Do NOT include your thought process or analysis. Only produce the specified outputs in the exact format shown.
 
 ### 1. If the question passes all criteria without changes:
 [PASS]
@@ -464,9 +561,9 @@ IMPORTANT: Only output the exact content requested below WITHOUT any explanation
 ### 2. If the question needs minor adjustments:
 [ADJUST]
 
-REFINED_REASONING_PATH: [Updated reasoning path that connects the two documents]
+REFINED_REASONING_PATH: [Updated reasoning path that connects the document chain]
 
-REFINED_QUESTION: [Adjusted question with minor improvements]
+REFINED_QUESTION: [Adjusted question with minor improvements, maintaining the same semantics]
 
 REFINED_ANSWER: [Updated answer if needed, otherwise keep the original]
 
@@ -474,9 +571,9 @@ REFINED_ANSWER: [Updated answer if needed, otherwise keep the original]
 ### 3. If the question needs significant refinement:
 [REWORKED]
 
-REFINED_REASONING_PATH: [Completely revised reasoning path]
+REFINED_REASONING_PATH: [Completely revised reasoning path that clearly reflects the N-hop chain]
 
-REFINED_QUESTION: [Substantially revised question]
+REFINED_QUESTION: [Substantially revised question that still uses the document chain in a meaningful way]
 
 REFINED_ANSWER: [Updated answer based on the revised question]
 
@@ -491,16 +588,11 @@ Multi-hop Question: {multi_hop_question}
 Answer: {answer}
 Reasoning Path: {reasoning_path}
 
-Sub-question 1 (for Document A) with answer: {sub_question_1}
-Sub-question 2 (for Document B) with answer: {sub_question_2}
+Sub-questions and answers across hops:
+{sub_questions_summary}
 
-(These sub-questions and their answers show the key information that should be extracted from each document)
-
-Document A Segment:
-{doc_a_seg}
-
-Document B Segment:
-{doc_b_seg}
+Document Chain Segments:
+{document_chain_segments}
 ##################
 
 Output:
