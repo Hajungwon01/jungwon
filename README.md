@@ -9,9 +9,9 @@
 
 ### Selected Projects
 
-- **Comparison QA Benchmark (NAVER)**
-- **Comparison Question Difficulty Analysis**
-- **RAG + VLM Benchmark (ETRI)**
-- **Automated Volleyball Match Record Generation (Awarded)**
+- **[Comparison QA Benchmark (NAVER)](./projects/comparison-qa-benchmark)**
+- **[Comparison Question Difficulty Analysis](./projects/comparison-question-difficulty-analysis)**
+- **[RAG + VLM Benchmark (ETRI)](./projects/rag-vlm-benchmark)**
+- **[Automated Volleyball Match Record Generation (Awarded)](./projects/sports-match-record-automation)**
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=BDBDC8&height=150&section=footer" />
