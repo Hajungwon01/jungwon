@@ -8,6 +8,5 @@
 Selected LLM / AI Projects
 - Difficulty Analysis of Comparison-type Questions in LLM Reasoning
 - Automated Volleyball Match Record Generation System (Awarded) - 정리 중
-
-[![Top Langs](https://github-readme-stats.vercel.app/api/top-langs/?username=Hajungwon01)](https://github.com/anuraghazra/github-readme-stats)
+  
 <img src="https://capsule-render.vercel.app/api?type=waving&color=BDBDC8&height=150&section=footer" />
